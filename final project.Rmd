@@ -1,0 +1,654 @@
+---
+title: "GEOG_5229_Final"
+author: "Quazi Samaul Islam, Syan Raval, and Tirth Patel"
+date: "2024-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message = 'false'}
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(sf)
+library(ggmap)
+library(tmap)
+library(tigris)
+library(spatstat)
+library(spdep)
+library(spatialreg)
+library(purrr)
+library(lubridate)
+library(ggspatial)
+```
+
+# Preparing the data
+
+```{r, results = 'hide'}
+# Loading LA County Boundary
+la_county <- counties(state = "CA", cb = TRUE) %>%
+  filter(NAME == "Los Angeles")
+
+common_crs <- st_crs(la_county)
+```
+
+```{r}
+# Loading California counties for smaller scale
+counties <- counties(state = 'CA', cb = TRUE)
+counties <- st_transform(counties, common_crs)
+```
+
+```{r}
+# Loading and cleaning fire stations data set for relevant study area
+fire_stations <- read.csv("~/raval27/GEOG 5229/Final Project/Fire_Stations.csv")
+
+fire_stations_lac <- fire_stations %>%
+  filter(org_name %in% c("Los Angeles County Fire Department"),
+         state == "CA") %>%  # We only want to filter based on org_name and state
+  select(OBJECTID, org_name, city, state, latitude, longitude, POINT_X, POINT_Y)
+
+fire_stations_lac <- st_as_sf(fire_stations_lac, coords = c("longitude", "latitude"), crs = 4326)
+fire_stations_lac <- st_transform(fire_stations_lac, common_crs)
+fire_stations_lac <- st_set_geometry(fire_stations_lac, "geometry")
+```
+
+```{r}
+# Loading and cleaning historical wildfire perimeters data set for relevant study area
+
+wildfires <- st_read("~/raval27/GEOG 5229/Final Project/California_Fire_Perimeters_(all)/California_Fire_Perimeters_(all).shp")
+
+wildfires <- st_transform(wildfires, common_crs)
+
+wildfires_lac <- wildfires %>%
+  filter(UNIT_ID %in% c("LAC", "Los Angeles County"), YEAR_ == "2022") %>%
+  mutate(ALARM_DATE = as.Date(ALARM_DATE, format = "%Y/%m/%d"))
+```
+
+```{r}
+# # Combines weekly drought data into single drought shapefile and adds time column with weeks being last 8 characters of each shapefile name
+# 
+# shapefiles <- list.files(path = "~/raval27/GEOG 5229/Final Project/Drought Data/", pattern = "\\.shp$", full.names = TRUE)
+# 
+# # Function to read, add time column, and clip shapefile to LA County
+# process_shapefile <- function(shapefile_path) {
+#   # Extract date from filename (last 8 characters)
+#   date_str <- substr(basename(shapefile_path), nchar(basename(shapefile_path)) - 11, nchar(basename(shapefile_path)) - 4)
+#   
+#   # Read shapefile
+#   shape <- st_read(shapefile_path)
+#   
+#   # Add time column
+#   shape$time <- date_str
+#   
+#   shape_transformed <- st_transform(shape, st_crs(la_county))
+#   shape_fixed <- st_make_valid(shape_transformed)
+#   
+#   # Clip to LA County (assuming la_county is defined)
+#   clipped <- st_intersection(shape_fixed, la_county)
+#   
+#   return(clipped)
+# }
+# 
+# # Process all shapefiles
+# processed_shapes <- map(shapefiles, process_shapefile)
+# 
+# # Combine all processed shapes into a single data frame
+# drought_data <- bind_rows(processed_shapes)
+# 
+# st_write(drought_data, "~/raval27/GEOG 5229/Final Project/merged_drought_la.shp", append=FALSE)
+
+drought_data_lac <- st_read("~/raval27/GEOG 5229/Final Project/merged_drought_la.shp")
+drought_data_lac <- st_transform(drought_data_lac, common_crs)
+
+drought_data_lac <- drought_data_lac %>%
+  mutate(time = as.Date(time, format = "%Y%m%d"))
+```
+
+## Question 1: Can we identify high-risk wildfire zones in Los Angeles County based on historical fire perimeters, distance from fire stations, and drought severity?
+
+```{r}
+print(head(fire_stations_lac))
+print(nrow(fire_stations_lac))
+```
+
+```{r attempt #1}
+ggplot(data = wildfires_lac) +
+  geom_sf(aes(fill = ALARM_DATE), size = 2) + scale_fill_viridis_c(name = "Alarm Date") + theme_minimal() +
+  labs(
+    title = "Wildfires in Los Angeles County",
+    subtitle = "Filtered by Specific Alarm Dates",
+    caption = "Source: California Fire Perimeters"
+  )
+```
+
+```{r attempt #2}
+ggplot(data = wildfires_lac) +
+  geom_sf(aes(fill = ALARM_DATE), size = 0.5) +
+  scale_fill_viridis_c(name = "Alarm Date") +
+  coord_sf(
+    xlim = c(-118.7, -118.1),  # adjust longitude range
+    ylim = c(33.8, 34.3),      # adjust latitude range
+    expand = FALSE
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Zoomed-in Wildfires in Los Angeles County",
+    subtitle = "Filtered by Specific Alarm Dates",
+    caption = "Source: California Fire Perimeters"
+  )
+```
+
+```{r mutating the data with area_km2}
+wildfires_lac <- wildfires_lac %>%
+  mutate(area_km2 = as.numeric(st_area(geometry) / 1e6)) #using mutate to find the area_km2 for geometry
+```
+
+```{r attempt #3 (results seen in visualization)}
+ggplot(data = wildfires_lac) +
+  geom_sf(aes(fill = area_km2), size = 80) + # visualizing using the area_km2
+  scale_fill_viridis_c(name = "Area (km²)") +
+  theme_minimal() +
+  labs(
+    title = "Wildfires in Los Angeles County (2022)",
+    subtitle = "Visualizing Wildfire Locations and Sizes",
+    caption = "Source: California Fire Perimeters",
+    x = "Longitude",
+    y = "Latitude"
+  )
+```
+
+### Analysis of the Wildfire Zones
+
+```{r}
+# creating a buffer around wildfire zones
+wildfire_buffer <- st_buffer(wildfires_lac, dist = 5000)  # 5 km buffer
+wildfire_buffer <- st_transform(wildfire_buffer, common_crs)
+```
+
+```{r Visualization}
+tm_shape(la_county) +
+  tm_borders() + # adding the la county's border to the map
+  tm_shape(wildfire_buffer) +
+  tm_fill(col = "green", alpha = 1) + # indicates wildfire zones
+  
+  #overlaying drought data with severity levels represented by a color gradient
+  tm_shape(drought_data_lac) +
+  tm_fill(col = "DM", palette = c("blue", "yellow", "orange", "red", "purple"), 
+          title = "Drought Severity", alpha = 0.1) + # columns showing the drought severity
+  
+  # plotting the fire stations
+  tm_shape(fire_stations_lac) +
+  tm_dots(col = "black", size = 0.2) + # using blue dots to represent them
+  tm_layout(main.title = "Wildfire Zones in LA County with Drought Severity and Fire Stations",
+            main.title.size = 0.6, #Adjusting the title size to fit the whole title
+            legend.position = c("left", "bottom")) # legend
+```
+
+```{r}
+tm_shape(la_county) +
+  tm_fill(col = NA) +  # add a transparent fill for LA County
+  tm_borders(lwd = 1.5, col = "black") +  # show LA County boundaries clearly
+  tm_shape(drought_data_lac) + 
+  tm_fill(
+    col = "DM", 
+    palette = c("blue", "yellow", "orange", "green", "purple"), 
+    title = "Drought Severity", 
+    alpha = 0.5  # make drought polygons semi-transparent
+  ) +  
+  tm_shape(wildfire_buffer) + 
+  tm_fill(
+    col = "red", 
+    alpha = 0.4, 
+    title = "Wildfire Zones"  # ensuring wildfire zones are distinguishable
+  ) +  
+  tm_shape(fire_stations_lac) +
+  tm_dots(
+    col = "black", 
+    size = 0.2, 
+    title = "Fire Stations"
+  ) +  
+  tm_layout(
+    main.title = "Wildfire Zones in LA County with Drought Severity and Fire Stations", 
+    legend.position = c("left", "bottom"), 
+    legend.bg.color = "white",  # this adds a background to the legend for readability
+    legend.bg.alpha = 0.7  # slight transparency for the legend background
+  )
+```
+
+### Spatial Join: Drought Severity and Wildfires
+```{r}
+wildfire_drought_intersection <- st_intersection(wildfires_lac, drought_data_lac) # for wildfires intersecting with the drought
+
+head(wildfire_drought_intersection)
+```
+
+```{r}
+wildfire_drought_severity <- wildfire_drought_intersection %>%
+  group_by(FIRE_NAME) %>% # group data bu using wildfire number (FIRE_NUM)
+  summarize(drought_severity = max(DM, na.rm = TRUE))
+
+# View the results
+head(wildfire_drought_severity)
+```
+
+```{r}
+wildfire_drought_join <- st_join(wildfires_lac, drought_data_lac, join = st_intersects) #join wildfire and drought data based on spatial intersection
+
+# visualize wildfire zones, drought severity, and fire stations in LA County
+tm_shape(la_county) +
+  tm_borders() +  # show LA County boundaries
+  tm_shape(wildfire_drought_join) + 
+  tm_fill(col = "DM", palette = c("blue", "yellow", "orange", "red", "purple"), 
+          title = "Drought Severity", alpha = 0.5) +             # drought severity fill
+  tm_shape(fire_stations_lac) +
+  tm_dots(col = "gray", size = 0.2, alpha = 0.3) +  # add fire stations as blue dots
+  tm_layout(main.title = "Wildfire Zones and Drought Severity in LA County",
+            main.title.size = 0.6,
+            legend.position = c("left", "bottom"))
+```
+
+```{r}
+wildfire_buffer <- st_buffer(wildfires_lac, dist = 5000)  # 5 km buffer
+
+tm_shape(la_county) +
+  tm_borders() +
+  tm_shape(wildfire_buffer) +
+  tm_fill(col = "red", alpha = 0.4) +  # buffer zones in red
+  tm_shape(wildfire_drought_join) +
+  tm_fill(col = "DM", palette = c("blue", "yellow", "orange", "red", "purple"), 
+          title = "Drought Severity", alpha = 0.5) +
+  tm_shape(fire_stations_lac) +
+  tm_dots(col = "gray", size = 0.2, alpha = 0.2) +
+   tm_layout(main.title = "Wildfire Zones, Drought Severity, and Fire Stations in LA County",
+            main.title.size = 0.6,
+            legend.position = c("left", "bottom"))
+```
+
+### Proximity Analysis: Fire Stations and Wildfires
+```{r}
+fire_station_buffer <- st_buffer(fire_stations_lac, dist = 10000)  # 10 km buffer
+
+# join fire stations to the wildfire buffer zone to check proximity
+fire_station_near_wildfires <- st_join(fire_station_buffer, wildfire_buffer)
+
+# count the number of fire stations within the buffer for each wildfire
+fire_station_count_per_wildfire <- fire_station_near_wildfires %>%
+  group_by(FIRE_NAME) %>%
+  summarize(fire_station_count = n())
+```
+
+```{r}
+fire_station_count_per_wildfire <- st_make_valid(fire_station_near_wildfires)
+```
+
+```{r}
+print(fire_station_count_per_wildfire)
+```
+
+```{r}
+tm_shape(la_county) +
+  tm_borders() +
+  tm_shape(fire_station_buffer) +
+  tm_fill(col = "lightblue", alpha = 0.5, title = "Fire Station Buffer") + # highlight the buffer zones around fire stations
+  tm_shape(wildfire_buffer) +
+  tm_fill(col = "orange", alpha = 0.5, title = "Wildfire Zones") +  # show wildfire zones with semi-transparent orange fill
+  tm_shape(fire_stations_lac) +
+  tm_dots(col = "red", size = 0.2, title = "Fire Stations") +  # adjust size for visibility
+  tm_layout(main.title = "Proximity of Wildfires to Fire Stations in LA County", 
+            main.title.size = 0.7,
+            legend.position = c("left", "bottom"))
+```
+
+### Identifying High Risk Zones using Spatial Analysis
+
+```{r}
+
+# wildfire_risk_analysis <- st_union(drought_data_lac, fire_station_count_per_wildfire)
+# 
+# # add a new "risk_score" column to the wildfire_risk_analysis dataset
+# wildfire_risk_analysis <- wildfire_risk_analysis %>%
+#   mutate(
+#     risk_score = case_when(
+#       (DM == 5) & (fire_station_count >= 1) ~ "High Risk",      # assigning high risk
+#       (DM >= 4) & (fire_station_count >= 1) ~ "Moderate Risk",  #   ''      moderate risk
+#       TRUE ~ "Low Risk"                                                   # low risk
+#     )
+#   )
+
+```
+
+```{r}
+# head(wildfire_risk_analysis)
+```
+
+```{r}
+
+# # create a frequency table of the "risk_score" variable
+# table(wildfire_risk_analysis$risk_score)
+# 
+# # make sure that risk_score is a factor with the proper levels
+# wildfire_risk_analysis$risk_score <- factor(wildfire_risk_analysis$risk_score, # function using th erisk_scores
+#                                              levels = c("Low Risk", "Moderate Risk", "High Risk")) # levels of risk
+# 
+# # checking again
+# table(wildfire_risk_analysis$risk_score)
+
+```
+
+```{r}
+# '
+# tm_shape(la_county) +
+#   tm_borders() +
+#   tm_shape(wildfire_risk_analysis) +
+#   tm_fill(col = "risk_score", palette = c("Low Risk" = "green", "Moderate Risk" = "yellow", "High Risk" = "red")) + # using risk score to assign colors for zones
+#   tm_shape(fire_stations_lac) +
+#   tm_dots(col = "blue", size = 0.3, title = "Fire Stations") +
+#   tm_layout(main.title = "High-Risk Wildfire Zones in LA County (2022)", legend.position = c("left", "bottom"))
+# '
+```
+### Moran test
+
+```{r}
+# spatial join for wildfire and drought severity
+wildfire_drought_join <- st_join(wildfires_lac, drought_data_lac, join = st_intersects)
+
+# assign risk scores based on drought severity
+wildfire_drought_join <- wildfire_drought_join %>%
+  mutate(
+    risk_score = case_when(
+      DM == 5 ~ "High Risk",
+      DM >= 3 ~ "Moderate Risk",
+      TRUE ~ "Low Risk"
+    )
+  )
+
+# convert risk score to a factor and assign numeric levels
+wildfire_drought_join$risk_score <- factor(
+  wildfire_drought_join$risk_score, 
+  levels = c("Low Risk", "Moderate Risk", "High Risk")
+)
+risk_score_numeric <- as.numeric(wildfire_drought_join$risk_score)
+
+# create spatial neighbors and weight matrix
+neighbors <- poly2nb(as_Spatial(wildfire_drought_join))  # queen contiguity
+weights <- nb2listw(neighbors, style = "W")              # row-standardized weights
+
+#  perform Moran's I test
+moran_result <- moran.test(risk_score_numeric, listw = weights)
+
+# display the Moran's I test results
+print(moran_result)
+```
+
+```{r}
+moran_result_value <- moran_result$estimate[1]  # Moran's I statistic
+
+tm_shape(wildfire_drought_join) +
+  tm_borders() +
+  tm_fill(col = "risk_score", 
+          palette = c("Low Risk" = "green", "Moderate Risk" = "yellow", "High Risk" = "red")) +
+  tm_layout(main.title = paste("Moran's I =", round(moran_result_value, 3)),
+            legend.position = c("left", "bottom"))
+```
+```{r}
+# 
+# plot(moran_data$observed, moran_data$lagged,
+#      xlab = "Observed Risk Score", ylab = "Lagged Risk Score",
+#      main = "Morans I Scatter Plot",
+#      col = "blue", pch = 16)
+# abline(h = mean(moran_data$lagged), col = "red", lwd = 2)  # red line represents the average lagged value
+# 
+```
+
+## Question 2: What is the spatial relationship between areas of high drought severity and the frequency of small (<500 acres) wildfires in Los Angeles County?
+
+```{r}
+ggplot() +
+  geom_sf(data = la_county, fill = "grey", color = "black", size = 0.2) +
+  geom_sf(data = drought_data_lac, aes(fill = DM), alpha = 0.6) +
+  scale_fill_viridis_c(option = "plasma", name = "Drought Metric") +
+  labs(
+    title = "Drought Severity in Los Angeles County",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# filter wildfire data to include fire under 500 acres.
+small_wildfires <- wildfires_lac %>% filter(GIS_ACRES < 500)
+
+# Overlay these wildifre points on the drought map
+
+ggplot() +
+  geom_sf(data = la_county, fill = "grey", color = "black", size = 0.2) +
+  geom_sf(data = drought_data_lac, aes(fill = DM), alpha = 0.6) +
+  geom_sf(data = small_wildfires, aes(color = "Small Wildfires"), size = 1.5, alpha = 0.8) +
+  scale_fill_viridis_c(option = "plasma", name = "Drought Metric") +
+  scale_color_manual(values = c("Small Wildfires" = "red"), name = "Wildfire Type") +
+  labs(
+    title = "Small Wildfires and Drought Severity in Los Angeles County",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_sf(
+    xlim = c(-118.9, -117.6),  # Adjust longitude range
+    ylim = c(33.7, 34.8)       # Adjust latitude range
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# reproject to the same coordiante system 
+small_wildfires <- st_transform(small_wildfires, st_crs(drought_data_lac))
+# Perform a spatial join to associate each small wildfire with the drought severity level of the region it overlaps
+wildfires_drought <- st_join(small_wildfires, drought_data_lac)
+
+# Analyze wildifire frequency by drought level
+wildfire_summary <- wildfires_drought %>%
+  group_by(DM) %>%
+  summarize(frequency = n())
+print(wildfire_summary)
+```
+
+```{r}
+# Conducting a point pattern analysis to project wildifre data to spatial points
+# First reproject both small wildfires and la county wgs84 to la county CRS
+
+small_wildfires_projected <- st_transform(small_wildfires, 32611)  # Reproject wildfires
+la_county_projected <- st_transform(la_county, 32611)       # Reproject LA County
+
+wildfire_ppp <- as.ppp(
+  st_coordinates(small_wildfires_projected),
+  W = as.owin(st_bbox(la_county_projected))  # Create observation window from LA County boundary
+)
+
+summary(wildfire_ppp)
+```
+
+```{r}
+# Using k-function to detect clustering
+K <- Kest(wildfire_ppp)
+plot(K)
+
+quadrat <- quadrat.test(wildfire_ppp, nx = 5, ny = 5)
+print(quadrat)
+```
+
+```{r}
+wildfires_drought <- st_join(small_wildfires, drought_data_lac, join = st_intersects)
+
+# Remove rows with missing values
+wildfires_drought <- wildfires_drought[!is.na(wildfires_drought$DM) & !is.na(wildfires_drought$frequency), ]
+
+centroids <- st_centroid(small_wildfires)
+coords <- st_coordinates(small_wildfires)
+coords_clean <- coords[, 1:2]
+# prepare spatial data 
+
+wildfire_data <- data.frame(
+  DM = wildfires_drought$DM,
+  frequency = wildfires_drought$frequency
+)
+
+# Define neighbors within 5 km
+nb <- dnearneigh(coords_clean, d1 = 0, d2 = 5000)
+
+# Convert neighbors to spatial weights
+listw <- nb2listw(nb, style = "W")
+```
+
+```{r}
+ggplot() +
+  # Base map of Los Angeles County
+  geom_sf(data = la_county, fill = "grey", color = "black", size = 0.2) +
+  
+  # Drought severity map
+  geom_sf(data = drought_data_lac, aes(fill = DM), alpha = 0.6) +
+  
+  # Wildfire locations
+  geom_sf(data = small_wildfires, aes(color = "Small Wildfires"), size = 1.5, alpha = 0.8) +
+  
+  # Adjust scales for drought and wildfire
+  scale_fill_viridis_c(option = "viridis", name = "Drought Metric") +
+  scale_color_manual(values = c("Small Wildfires" = "red"), name = "Wildfire Type") +
+  
+  # Add labels and titles
+  labs(
+    title = "Small Wildfires and Drought Severity in Los Angeles County",
+    subtitle = "Visualizing the correlation between drought severity and wildfire distribution",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  
+  # Zoom in for better detail
+  coord_sf(xlim = c(-119, -117.5), ylim = c(33.5, 34.8)) +
+  
+  # Minimalist theme
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    legend.position = "right"
+  )
+```
+
+## Question 3: How does the proximity of wildfires to fire stations in Los Angeles County correlate with drought severity, and how does this relationship change over time during the 2022 fire season?
+
+```{r, message = 'false'}
+# Calculate the centroid of each wildfire polygon
+wildfires_lac$centroid <- st_centroid(wildfires_lac$geometry)
+
+# Calculate the distance from each wildfire centroid to all fire stations
+# Then find the minimum distance for each wildfire (i.e., distance to nearest station)
+nearest_station_distances <- st_distance(wildfires_lac$centroid, fire_stations_lac)
+wildfires_lac$nearest_station_dist <- apply(nearest_station_distances, 1, min)
+
+# Join wildfire data with drought data, filtering for drought data within 7 days of fire start
+# Calculate average drought severity for each fire
+wildfires_w_drought <- st_join(wildfires_lac, drought_data_lac, join = st_intersects, left = TRUE) %>%
+  filter(time >= ALARM_DATE & time <= ALARM_DATE + 7) %>%
+  group_by(FIRE_NAME) %>%
+  summarize(avg_drought = mean(DM, na.rm = TRUE))
+
+# Calculate overall correlation between fire station distance and drought severity
+overall_correlation <- wildfires_lac %>%
+  st_join(wildfires_w_drought, join = st_nearest_feature, left = TRUE) %>%
+  filter(!is.na(nearest_station_dist) & !is.na(avg_drought)) %>%
+  summarize(
+    correlation = if(n() >= 3 && n_distinct(avg_drought) > 1) 
+                    cor(nearest_station_dist, avg_drought, 
+                        method = "spearman", use = "complete.obs") 
+                  else NA,
+    sample_size = n()
+  )
+
+print(overall_correlation)
+
+# Prepare data for plotting by removing geometry
+plot_data <- wildfires_lac %>%
+  st_join(wildfires_w_drought, join = st_intersects, left = TRUE) %>%
+  filter(!is.na(nearest_station_dist) & !is.na(avg_drought)) %>%
+  st_drop_geometry()
+
+map_data <- wildfires_lac %>%
+  st_join(wildfires_w_drought, join = st_intersects, left = TRUE) %>%
+  filter(!is.na(nearest_station_dist) & !is.na(avg_drought))
+
+# Create a scatter plot of fire station distance vs drought severity
+ggplot(plot_data, aes(x = nearest_station_dist, y = avg_drought)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", color = "red") +
+  geom_text(
+    aes(x = max(nearest_station_dist), y = max(avg_drought), 
+        label = paste("ρ =", round(overall_correlation$correlation, 3))),
+    hjust = 1, vjust = 1
+  ) +
+  labs(
+    title = paste("Correlation between Fire Station Distance and Drought Severity"),
+    subtitle = paste("Spearman correlation:", round(overall_correlation$correlation, 3),
+                     "| Sample size:", overall_correlation$sample_size),
+    x = "Distance to Nearest Fire Station (meters)",
+    y = "Average Drought Severity"
+  ) +
+  theme_minimal()
+
+# Create a scatter plot with points colored by date
+ggplot(plot_data, aes(x = nearest_station_dist, y = avg_drought, fill = ALARM_DATE)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", color = "red") +
+  scale_color_gradient(low = "blue", high = "red") +
+  geom_text(
+    aes(x = max(nearest_station_dist), y = max(avg_drought), 
+        label = paste("ρ =", round(overall_correlation$correlation, 3))),
+    hjust = 1, vjust = 1
+  ) +
+  labs(
+    title = "Correlation between Fire Station Distance and Drought Severity Over Time",
+    subtitle = paste("Spearman correlation:", round(overall_correlation$correlation, 3),
+                     "| Sample size:", overall_correlation$sample_size),
+    x = "Distance to Nearest Fire Station (meters)",
+    y = "Average Drought Severity",
+    color = "Date"
+  ) +
+  theme_minimal()
+
+# Create a scatter plot with points connected chronologically
+ggplot(plot_data, aes(x = nearest_station_dist, y = avg_drought, fill = ALARM_DATE)) +
+  geom_point(alpha = 0.6) +
+  geom_path(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "black") +
+  scale_color_gradient(low = "blue", high = "red") +
+  geom_text(
+    aes(x = max(nearest_station_dist), y = max(avg_drought), 
+        label = paste("ρ =", round(overall_correlation$correlation, 3))),
+    hjust = 1, vjust = 1
+  ) +
+  labs(
+    title = "Correlation between Fire Station Distance and Drought Severity Over Time",
+    subtitle = paste("Spearman correlation:", round(overall_correlation$correlation, 3),
+                     "| Sample size:", overall_correlation$sample_size),
+    x = "Distance to Nearest Fire Station (meters)",
+    y = "Average Drought Severity",
+    color = "Date"
+  ) +
+  theme_minimal()
+
+ggplot() +
+  geom_sf(data = la_county) +
+  geom_sf(data = map_data, aes(fill = avg_drought, color = nearest_station_dist), alpha = 0.7) +
+  geom_sf(data = fire_stations_lac, color = "red", size = 1, alpha = 0.4) +
+  scale_fill_viridis_c(name = "Drought Severity") +
+  scale_size_continuous(name = "Distance to Nearest Fire Station (m)") +
+  annotation_scale(location = "bl", width_hint = 0.5) +
+  theme_minimal() +
+  labs(title = "Wildfires, Fire Stations, and Drought Severity in Los Angeles County",
+       subtitle = paste("Spearman correlation:", round(overall_correlation$correlation, 3)))
+```
+
+
+
