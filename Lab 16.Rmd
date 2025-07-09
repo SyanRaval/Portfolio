@@ -1,0 +1,367 @@
+---
+title: "Lab 16"
+author: "Syan Raval"
+date: "2024-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Required Libraries
+# install.packages("rJavaEnv")
+```
+
+```{r}
+rJavaEnv::java_quick_install(version = 21)
+```
+
+```{r}
+# install.packages("r5r")
+```
+
+```{r}
+options(java.parameters = "-Xmx2G")
+
+library(r5r)
+library(osmextract)
+library(tidyverse)
+library(sf)
+library(ggthemes)
+library(ggspatial)
+library(tigris)
+library(wesanderson)
+library(tidytransit)
+library(mapview)
+library(tmap)
+```
+
+```{r}
+# Set Working Directory
+setwd("~/raval27/GEOG 5229/Assignment 6")
+
+'dir.create("networks")
+
+# Download Transit Network Data
+download.file("https://app.mecatran.com/urb/ws/feed/c2l0ZT1zbG90cmFuc2l0O2NsaWVudD1zZWxmO2V4cGlyZT07dHlwZT1ndGZzO2tleT0zZTMwMzM1OTRiMTE2NzA0N2IxNjQwNjA0ZjQwMGMzMzdiM2E1MTQ0", 
+              file.path("networks", "SLOgtfs.zip"), mode = "wb", quiet = TRUE)'
+```
+
+```{r}
+# Download and Process Street Network
+SLO_file <- oe_match("San Luis Obispo", provider = "openstreetmap_fr")
+```
+
+```{r}
+SLO_streets <- oe_read(SLO_file$url, 
+                       provider = "openstreetmap_fr", 
+                       download_directory = "networks", 
+                       layer = "lines", 
+                       quiet = TRUE) %>%
+  filter(!is.na(highway))
+
+# Load and Reproject City Limits
+SLO_city_limits <- places(state = "CA") %>%
+  filter(NAME == "San Luis Obispo") %>%
+  st_transform(crs = st_crs(SLO_streets))
+
+SLO_streets <- st_intersection(SLO_streets, SLO_city_limits)
+```
+
+```{r}
+# Plot Street Network
+CA5_state_plane <- "+proj=lcc +lat_1=34.03333333333333 +lat_2=35.46666666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000 +y_0=500000 +ellps=GRS80 +units=m +no_defs"
+
+ggplot(SLO_streets) +
+  geom_sf() +
+  coord_sf(crs = CA5_state_plane)
+```
+
+```{r}
+# Load Schools
+SLO_schools <- oe_read(SLO_file$url, 
+                       provider = "openstreetmap_fr", 
+                       download_directory = "networks", 
+                       layer = "points", 
+                       quiet = TRUE) %>%
+  filter(str_detect(other_tags, '"amenity"=>"school"')) %>%
+  st_filter(SLO_city_limits) %>%
+  rename(id = osm_id)
+
+ggplot() +
+  geom_sf(data = SLO_streets, color = "gray") +
+  geom_sf(data = SLO_schools, color = "red", size = 2) +
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue") +
+  coord_sf(crs = CA5_state_plane) +
+  theme_minimal() +
+  ggtitle("San Luis Obispo Street Network and School Locations") +
+  annotation_north_arrow(location = "tr", which_north = "true", style = north_arrow_fancy_orienteering) +
+  annotation_scale(location = "bl", width_hint = 0.5)
+```
+
+```{r}
+# Create Grid of Points
+grid <- st_sf(st_make_grid(SLO_city_limits, 
+                           square = FALSE, 
+                           n = c(100, 100), 
+                           what = "polygons")) %>%
+  st_filter(SLO_city_limits)
+
+colnames(grid) <- "geometry"
+st_geometry(grid) <- "geometry"
+
+grid <- grid %>%
+  mutate(id = seq(1, length(grid$geometry), by=1))
+
+grid_points<- st_centroid(grid)
+
+ggplot() +
+  geom_sf(data = grid, fill = NA, color = "lightgray") +
+  geom_sf(data = SLO_streets, color = "darkgray") +
+  geom_sf(data = SLO_schools, color = "red", size = 3) +
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue", linewidth = 1) +
+  coord_sf(crs = CA5_state_plane) +
+  theme_minimal() +
+  ggtitle("San Luis Obispo Grid, Streets, and Schools") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  annotation_north_arrow(location = "tr", which_north = "true", style = north_arrow_fancy_orienteering) +
+  annotation_scale(location = "bl", width_hint = 0.5)
+```
+
+```{r}
+# Initialize R5 Core
+r5r_core <- setup_r5("networks", verbose = FALSE)
+```
+
+```{r}
+# Travel Time Matrix
+ttm <- travel_time_matrix(r5r_core = r5r_core,
+                          origins = SLO_schools,
+                          destinations = grid_points,
+                          mode = c("WALK", "TRANSIT"),
+                          departure_datetime = as.POSIXct("15-10-2024 14:00:00",
+                                                          format = "%d-%m-%Y %H:%M:%S"),
+                          max_walk_time = 20,
+                          max_trip_duration = 480,
+                          verbose = FALSE)
+
+# Check for duplicates and summarize
+ttm <- ttm %>%
+  group_by(to_id, from_id) %>%
+  summarise(travel_time_p50 = min(travel_time_p50, na.rm = TRUE), .groups = "drop")
+
+# Transform and Map Travel Time Matrix
+tt_wide <- ttm %>%
+  pivot_wider(
+    names_from = from_id,
+    names_prefix = "from",
+    values_from = travel_time_p50,
+    values_fn = list(travel_time_p50 = min) # Ensures duplicates are summarized
+  ) %>%
+  rename(id = to_id) %>% 
+  merge(grid) %>% 
+  replace(is.na(.), 999) %>% 
+  rowwise() %>% 
+  mutate(from_any = min(c_across(starts_with("from")), na.rm = TRUE))
+
+st_geometry(tt_wide) <- "geometry"
+
+ggplot() +
+  geom_sf(data = tt_wide, aes(fill = from_any), color = NA) +
+  geom_sf(data = grid, fill = NA, color = "darkgray", size = 1) +
+  geom_sf(data = SLO_schools, color = "red", size = 2) +
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue", size = 1) +
+  scale_fill_viridis_c(
+    option = "viridis",
+    name = "Travel Time (minutes)",
+    limits = c(0, 60),
+    oob = scales::squish
+  ) +
+  coord_sf(crs = CA5_state_plane) +
+  theme_minimal() +
+  ggtitle("Travel Time to Nearest School in San Luis Obispo") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.key.width = unit(2, "cm")
+  ) +
+  annotation_north_arrow(location = "tr", which_north = "true", style = north_arrow_fancy_orienteering) +
+  annotation_scale(location = "bl", width_hint = 0.5)
+```
+
+```{r}
+# Isochrones
+iso10min <- tt_wide[tt_wide$from_any < 11,] %>%
+  st_union()
+
+iso20min <- tt_wide[tt_wide$from_any < 21,] %>%
+  st_union()
+
+iso30min <- tt_wide[tt_wide$from_any < 31,] %>%
+  st_union()
+
+# Plot Isochrones
+ggplot() +
+  geom_sf(data = SLO_streets) +
+  geom_sf(data = iso10min, fill = "red", alpha = 0.4) +
+  geom_sf(data = iso20min, fill = "yellow", alpha = 0.4) +
+  geom_sf(data = iso30min, fill = "blue", alpha = 0.4)
+
+# Calculate areas of the isochrones
+area_iso10min <- st_area(iso10min)
+area_iso20min <- st_area(iso20min)
+area_iso30min <- st_area(iso30min)
+
+# Convert areas to square kilometers (assuming the CRS is in meters)
+area_iso10min_km2 <- as.numeric(area_iso10min) / 1e6
+area_iso20min_km2 <- as.numeric(area_iso20min) / 1e6
+area_iso30min_km2 <- as.numeric(area_iso30min) / 1e6
+
+# Print the areas
+cat("Area of 10-minute isochrone:", area_iso10min_km2, "km²\n")
+cat("Area of 20-minute isochrone:", area_iso20min_km2, "km²\n")
+cat("Area of 30-minute isochrone:", area_iso30min_km2, "km²\n")
+```
+
+```{r}
+# Accessibility Analysis
+SLO_transit <- read_gtfs(file.path("networks", "SLOgtfs.zip"))
+
+nrow(SLO_transit)
+colnames(SLO_transit)
+
+transit_stops <- st_as_sf(SLO_transit$stops, 
+                          coords = c("stop_lon", "stop_lat"), 
+                          crs = st_crs(grid))
+```
+
+```{r}
+transit_grid <- grid %>%
+  mutate(num_stops = lengths(st_intersects(grid, transit_stops)))
+
+transit_points <- st_centroid(transit_grid)
+```
+
+```{r}
+ggplot() +
+  # Plot the city limits
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue", size = 1) +
+  # Plot the street network
+  geom_sf(data = SLO_streets, color = "gray", size = 0.2) +
+  # Plot the grid centroids
+  geom_sf(data = transit_points, aes(color = num_stops), size = 2) +
+   # Add labels for the number of stops
+  geom_text(data = transit_points %>% filter(num_stops > 0), aes(label = num_stops, geometry = geometry),
+            stat = "sf_coordinates", size = 1, color = "yellow", vjust = -1) +
+  # Set the coordinate system
+  coord_sf(crs = CA5_state_plane) +
+  # Customize the theme
+  theme_minimal() +
+  labs(title = "Number of Transit Stops per Grid Cell in San Luis Obispo") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+# Run accessibility analysis with corrected data types and unique IDs
+transit_access <- accessibility(
+  r5r_core,
+  origins = transit_points,
+  destinations = transit_points,
+  mode = "WALK",
+  opportunities_colname = "num_stops",
+  decay_function = "step",
+  cutoffs = 11,
+  departure_datetime = as.POSIXct("15-10-2024 14:00:00", format = "%d-%m-%Y %H:%M:%S"),
+  max_walk_time = 10,
+  time_window = 60,
+  percentiles = 50,
+  verbose = FALSE
+) %>%
+  mutate(id = as.numeric(id)) %>%
+  merge(grid)
+
+st_geometry(transit_access) <- "geometry"
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = transit_access, aes(fill = accessibility), color = NA) +
+  geom_sf(data = SLO_streets, color = "gray", size = 0.1, alpha = 0.5) +
+  geom_sf(data = transit_stops, color = "red", size = 0.5) +
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue", size = 1) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    name = "Accessibility",
+    direction = -1  # Inverting the color scheme
+  ) + 
+  coord_sf(crs = CA5_state_plane) +
+  theme_minimal() +
+  labs(title = "Transit Accessibility in San Luis Obispo",
+       subtitle = "Using Step Decay Function") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.key.width = unit(2, "cm")
+  ) +
+  annotation_north_arrow(location = "tr", which_north = "true", style = north_arrow_fancy_orienteering) +
+  annotation_scale(location = "bl", width_hint = 0.5)
+```
+
+```{r}
+transit_access_exp <- accessibility(
+  r5r_core,
+  origins = transit_points,
+  destinations = transit_points,
+  mode = "WALK",
+  opportunities_colname = "num_stops",
+  decay_function = "exponential",
+  cutoffs = 5,  # Half-life of 5 minutes
+  departure_datetime = as.POSIXct("15-10-2024 14:00:00", format = "%d-%m-%Y %H:%M:%S"),
+  max_walk_time = 30,  # Increased to capture more distant effects
+  time_window = 60,
+  percentiles = 50,
+  verbose = FALSE
+) %>%
+  mutate(id = as.numeric(id)) %>%
+  merge(grid)
+
+st_geometry(transit_access_exp) <- "geometry"
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = transit_access_exp, aes(fill = accessibility), color = NA) +
+  geom_sf(data = SLO_streets, color = "gray", size = 0.1, alpha = 0.5) +
+  geom_sf(data = transit_stops, color = "red", size = 0.5) +
+  geom_sf(data = SLO_city_limits, fill = NA, color = "blue", size = 1) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    name = "Accessibility",
+    direction = -1  # Inverting the color scheme
+  ) + 
+  coord_sf(crs = CA5_state_plane) +
+  theme_minimal() +
+  labs(title = "Transit Accessibility in San Luis Obispo",
+       subtitle = "Using Exponential Decay Function") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.key.width = unit(2, "cm")
+  ) +
+  annotation_north_arrow(location = "tr", which_north = "true", style = north_arrow_fancy_orienteering) +
+  annotation_scale(location = "bl", width_hint = 0.5)
+```
+
+```{r}
+# Clean Up
+stop_r5(r5r_core)
+rJava::.jgc(R.gc = TRUE)
+```
+

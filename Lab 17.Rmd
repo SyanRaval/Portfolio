@@ -1,0 +1,235 @@
+---
+title: "Lab 17"
+author: "Syan Raval"
+date: "2024-12-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(spdep)
+library(spatialreg)
+library(knitr)
+library(tidygraph)
+library(ggraph)
+library(igraph)
+library(visNetwork)
+
+setwd("~/raval27/GEOG 5229/Assignment 7")
+rm(list=ls())
+
+tracts <- st_read("~/raval27/GEOG 5229/Data for Lab 17 network analysis/seattle_census_tracts_2010.shp", stringsAsFactors = FALSE)
+
+tracts_std <- tracts %>%
+                  st_drop_geometry() %>%
+                  mutate_at(~(scale(.) %>% as.vector(.)), # this allows you to mutate multiple columns
+                    .vars = vars(ppov, unemp, pnhblack, pund18, pwelfare)) %>%
+                  mutate(concd = (ppov+unemp+pnhblack+pund18+pwelfare)/5, 
+                         immc = (pfb+phisp)/2) %>%
+                  select(GEOID10, concd, immc) 
+
+#merge indices into main analysis file
+tracts <- left_join(tracts, tracts_std, by = "GEOID10")
+
+matrix <- read_csv("~/raval27/GEOG 5229/Data for Lab 17 network analysis/adjacency matrix.csv")
+
+edges <- read_csv("~/raval27/GEOG 5229/Data for Lab 17 network analysis/edges.csv")
+
+nodes <- read_csv("~/raval27/GEOG 5229/Data for Lab 17 network analysis/nodes.csv")
+
+glimpse(edges)
+
+glimpse(nodes)
+
+matrix <- matrix %>%
+                select(-...1)
+rownames(matrix) <- colnames(matrix)
+
+class(matrix)
+
+networkig <- graph_from_adjacency_matrix(as.matrix(matrix), 
+                                               mode = "undirected")
+
+network2 <- tbl_graph(nodes = nodes, edges = edges, directed = FALSE)
+network2
+
+class(network2)
+
+network2 %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link() + 
+  geom_node_point() + 
+  ggtitle("Gang Turf Network in Seattle, WA")
+
+dataVis <-  toVisNetworkData(network2,idToLabel = FALSE)
+
+visNetwork(nodes = dataVis$nodes, edges = dataVis$edges, width = "100%",
+           main = "Gang Turf Network in Seattle Neighborhoods") %>%
+  addFontAwesome() %>%
+  visOptions(highlightNearest = list(enabled = T, hover = T), nodesIdSelection = T) %>%
+  visInteraction(navigationButtons = TRUE)
+
+network2 %>%
+  activate(edges)
+
+connectednw <- network2 %>%
+  # Remove isolated nodes
+  activate(nodes) %>%
+  filter(!node_is_isolated()) # remove isolated nodes i.e., nodes without a link (edge).
+connectednw
+
+network2 <- network2 %>%
+                activate(nodes) %>%
+                mutate(degree = centrality_degree())
+network2
+
+ggraph(network2, layout = 'kk') + 
+  geom_edge_link() + 
+  geom_node_point(aes(size = degree, colour = degree)) + 
+  scale_color_continuous(guide = 'legend') + 
+  theme_graph()
+
+connectednw <- connectednw %>%
+  mutate(degree = centrality_degree()) 
+
+ggraph(connectednw, layout = "nicely") + 
+  geom_edge_diagonal(alpha = 0.2) + 
+  geom_node_point(aes(size = degree)) + 
+  scale_color_brewer(palette = "Set1", name = "Type") +
+  geom_node_text(aes(label = label), size = 2.5, repel = TRUE) +
+  theme_graph() +
+  theme(plot.background = element_rect(fill = "#ffffff")) +
+  labs(title = "Gang Turf Degree Centrality in Seattle Neighborhoods, 2017",
+       size = "Degree",
+       caption = "Data source: Seattle Police Department")
+
+network2 <- network2 %>%
+                activate(nodes) %>%
+                mutate(betweenness = centrality_betweenness())
+
+network2 %>% 
+  ggraph(layout = 'kk') + 
+  geom_edge_link() + 
+  geom_node_point(aes(size = betweenness, colour = betweenness)) + 
+  scale_color_continuous(guide = 'legend') + 
+  theme_graph()
+
+network2 <- network2 %>%
+                activate(nodes) %>%
+                mutate(closeness = centrality_closeness())
+network2 %>% 
+  ggraph(layout = 'kk') + 
+  geom_edge_link() + 
+  geom_node_point(aes(size = closeness, colour = closeness)) + 
+  scale_color_continuous(guide = 'legend') + 
+  theme_graph()
+
+network2 %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  summarize(mean = mean(degree),
+            max = max(degree),
+            median = median(degree)) %>%
+  kable()
+
+# Make a histogram
+network2 %>%
+            activate(nodes) %>%
+            as_tibble() %>%
+            ggplot() +
+            geom_bar(aes(x =degree))
+
+centr_degree(network2)$centralization # degree centrality
+
+centr_betw(network2)$centralization # betweenness centrality
+
+transitivity(network2)
+
+diameter(network2)
+
+get_diameter(network2)
+
+mean_distance(network2)
+
+graph.density(network2) 
+
+node.centrality <- network2 %>%
+                  activate(nodes) %>%
+                  as_tibble()
+node.centrality
+
+tracts<- tracts %>%
+            mutate(TRACTCE10 = as.numeric(TRACTCE10)) %>%
+            left_join(node.centrality, by = c("TRACTCE10" = "label"))
+
+# Mapping degree centrality
+tm_shape(tracts, unit = "mi") +
+  tm_polygons(col = "degree", style = "jenks",palette = "Reds", 
+              border.alpha = 0, title = "") +
+  tm_scale_bar(breaks = c(0, 1, 2), text.size = 1, position = c("left", "bottom")) +
+  tm_layout(main.title = "Gang network degree centrality",  
+            main.title.size = 0.95, frame = FALSE, legend.outside = TRUE)
+
+# Mapping betweenness centrality
+tm_shape(tracts, unit = "mi") +
+  tm_polygons(col = "betweenness", style = "jenks",palette = "Reds", 
+              border.alpha = 0, title = "") +
+  tm_scale_bar(breaks = c(0, 1, 2), text.size = 1, position = c("left", "bottom")) +
+  tm_layout(main.title = "Gang network betweenness centrality",  
+            main.title.size = 0.95, frame = FALSE, legend.outside = TRUE)
+
+seab <- poly2nb(tracts, queen=T) # Get the list of neighbors
+
+seaw <- nb2listw(seab, style="W", zero.policy = TRUE) # Get spatial weights
+
+moran.mc(tracts$degree, seaw, nsim=999) # Get Moran's I
+
+matrix.w <- mat2listw(as.matrix(matrix), style="W", zero.policy = TRUE)
+
+centroids <- st_centroid(st_geometry(tracts))
+plot(st_geometry(tracts), main = "Gang turf network")
+plot.listw(matrix.w, coords = centroids, add = T, col = "red")
+
+par(mfrow = c(1, 2))
+plot(st_geometry(tracts), main = "Gang turf network")
+plot.listw(matrix.w, coords = centroids, add = T, col = "red")
+plot(st_geometry(tracts), main = "Queen contiguity network")
+plot.listw(seaw, coords = centroids, add = T, col = "red")
+
+library(sfnetworks)
+
+centroids <-st_transform(centroids, 
+                                 crs = "+proj=utm +zone=10 +datum=NAD83 +ellps=GRS80")
+
+sea_gang_sfnetwork <- sfnetwork(centroids, edges, directed = FALSE)
+
+sea_gang_sfnetwork
+
+par(mfrow = c(1, 1))
+plot(sea_gang_sfnetwork)
+
+sea_gang_sfnetwork <- sea_gang_sfnetwork %>% 
+  convert(to_spatial_explicit) 
+
+sea_gang_sfnetwork
+
+sea_gang_sfnetwork <- sea_gang_sfnetwork %>%
+          mutate(degree = centrality_degree())
+
+# Map it
+ggplot(tracts) +
+  geom_sf(aes(fill = degree)) +
+  scale_fill_gradient(low= "white", high = "red",  name ="") +
+  geom_sf(data = activate(sea_gang_sfnetwork, "edges") %>% st_as_sf(), col = 'black') + 
+    labs(title = "Degree centrality of Seattle Gang Network") +
+    theme( axis.text =  element_blank(),
+    axis.ticks =  element_blank(),
+    panel.background = element_blank())
+```
+
