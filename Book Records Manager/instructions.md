@@ -25,8 +25,8 @@
    ./lab2 < lab2in
    ```
 
- 🧹 How to Clean:
- 
+🧹 How to Clean:
+
    ```bash
    make clean
    ```
