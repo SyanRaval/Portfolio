@@ -6,7 +6,7 @@
 🖥️ Requirements:
 - A Unix-like terminal (Linux, macOS, or WSL on Windows)
 - GCC compiler (part of build-essential package on Ubuntu)
-- `make` utility (optional but recommended)
+- "make" utility (optional but recommended)
 
 🔧 How to Compile and Run on GitHub:
 - Open this repository in the github codespace you created according to the main "README.md"
