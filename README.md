@@ -1,19 +1,97 @@
-# Portfolio of Completed Works (while attending the Ohio State University)
+---
 
-## Book Records Manager (lab2.c)
-This C program manages a collection of book records using a singly linked list, where each node stores book details and links to the next node. It features dynamic memory management with proper allocation and deallocation, sorted insertion by stock number, and a modular design that separates data entry, list manipulation, and financial calculations into dedicated functions. A menu-driven interface allows users to add, delete, view, and analyze records, with robust error handling for invalid input or memory failures. The project showcases essential C programming practices like pointer manipulation, manual memory control, and clean separation of concerns—making it a solid example of low-level systems programming and data structure implementation.
+# My Geospatial & Systems Programming Portfolio
 
-## XML Tree Natural-Number Expression Evaluator (Java)
-This project implements an XML-based arithmetic expression evaluator in Java for natural numbers, using a modular design that leverages third-party components for parsing (`XMLTree1`) and computation (`NaturalNumber2`). The core logic resides in a recursive `evaluate` method that traverses the XML tree, interpreting arithmetic operations (`<plus>`, `<minus>`, `<times>`, `<divide>`) or literal number nodes to compute a result using arbitrary-precision arithmetic. Defensive programming is demonstrated through divide-by-zero checks and input validation via assertions. The program includes a simple command-line interface for evaluating expressions from XML files, with clear separation between input/output handling and computation logic. This project highlights principles such as separation of concerns, reusable components, recursion, and maintainable, testable code structure—key qualities in scalable software development.
+Welcome to my portfolio! This repository showcases a selection of projects demonstrating my skills in **geospatial analysis, data management, and systems programming**. Each project highlights my approach to problem-solving, clean code architecture, and robust implementation.
 
-## Bestaurants Geodatabase
-In this lab, I designed and implemented a fully featured "Bestaurants" geospatial database using PostgreSQL with PostGIS, showcasing end-to-end proficiency in spatial database architecture. I began with schema design, applying a consistent spatial reference system (SRID 3857, WGS 84 Web Mercator) across all geometry-enabled tables. I created separate `POINT`-based tables for each venue type—diners, cafés, restaurants, and bars/lounges—with appropriately typed columns like `VARCHAR`, `INTEGER`, and `DATE`. To enforce data integrity, I used a check constraint (`rating BETWEEN 1 AND 5`) to replicate a coded-value domain, and introduced a `venue_type` enum to distinguish between bars and lounges, enabling default values and streamlining data entry with views or triggers. I implemented a normalized one-to-many relationship between the `diners` table and a `diner_reviews` table using foreign key constraints to prevent orphaned records and maintain referential integrity. To support efficient spatial queries—such as finding diners with an average rating of 4 or higher within 5 km of a location—I added spatial indexes (`GIST` on geometry columns) and attribute indexes (`BTREE` on ratings). I captured the complete schema in SQL scripts to support version control, reproducibility, and automated deployment. This project reinforced key principles of relational modeling, spatial indexing, and data integrity while leveraging PostGIS capabilities to build scalable, high-performance geospatial applications.
+---
 
-## Transit Accessibility Study (Lab 16.Rmd)
-In this lab, I used R’s emerging transport-GIS stack—**r5r**, **osmextract**, **tidytransit**, **sf**, and the **tidyverse**—to perform a multimodal accessibility analysis of San Luis Obispo. I set up a local Java environment for **r5r**, downloaded and clipped OSM street data to city limits, and overlaid school locations using `ggplot2`. I generated a hex grid over the city, computed centroids, and calculated walk/transit travel times from each school to all grid cells using `travel_time_matrix()`. After collapsing results and mapping the nearest-school travel times as a choropleth, I created 10, 20, and 30-minute isochrones and calculated their areas. I then used **tidytransit** to process GTFS data, counted transit stops per grid cell, and visualized them spatially. Finally, I modeled accessibility using `accessibility()` with both step and exponential decay functions, mapping the results to highlight spatial equity. This project demonstrated reproducible, script-based approaches to spatial network analysis, isochrones, and transit accessibility using modern R tools.
+## Featured Projects
 
-## Spatial Network & Autocorrelation Analysis (Lab 17.Rmd)
-In this lab, I conducted a full social- and spatial-network analysis of Seattle gang “turf” data entirely in R, integrating traditional spatial tools (**sf**, **tmap**, **spdep**) with modern network-science packages (**igraph**, **tidygraph**, **ggraph**, **sfnetworks**, **visNetwork**). I began by reading census tract data and standardizing neighborhood variables (poverty, unemployment, etc.) to create composite indices like concentrated disadvantage. After merging these into the spatial data, I built a network from tract-level edge and node tables, calculated centrality metrics (degree, betweenness, closeness), and analyzed global network structure. I visualized the network with **ggraph** and **visNetwork**, then mapped centrality scores back to tracts using **tmap**. To assess spatial clustering, I generated spatial weights and ran a Monte Carlo Moran’s I test. Finally, I created a spatial network with **sfnetworks**, recomputed centrality, and mapped the network geometrically. This lab highlighted how R enables seamless integration of spatial analysis, network science, and reproducible cartography in one workflow.
+### Book Records Manager (C)
 
-## Wildfire Risk Assessment (final project.Rmd)
-In this capstone project, my group and I used a modern RStudio-based GIS workflow—combining **sf**, **tigris**, **ggplot2/ggspatial**, **tmap**, **spatstat**, and **spdep**—to identify and analyze high-risk wildfire zones in Los Angeles County by integrating 2022 fire-perimeter polygons, fire-station locations, and weekly drought-severity shapefiles. We harmonized projections, converted fire-station CSVs to spatial layers, and enriched wildfire polygons with alarm dates, area, and derived drought metrics. We visualized fire size, timing, and drought overlap using buffers and semi-transparent drought layers, then quantified spatial intersections using **st\_intersection** and **st\_join**. Proximity to fire stations was assessed via buffers and nearest-distance calculations. We used Moran’s I to test for spatial clustering of drought-driven fire risk and ran point-pattern analysis (Ripley’s K) for small fires to detect local clustering. Finally, we analyzed the correlation between drought severity and station proximity over time. The project demonstrates how emerging R-based GIS approaches enable integrated spatial analysis, proximity modeling, and high-quality mapping in a reproducible workflow.
+This project is a robust **Book Records Manager** built in C, using a singly linked list to efficiently handle a collection of book records. It's a great example of core C programming principles in action.
+
+**Key Highlights:**
+
+* **Dynamic Memory Management:** Implemented proper memory allocation and deallocation to prevent leaks and optimize resource use.
+* **Sorted Data Structures:** Utilized a singly linked list with sorted insertion by stock number for efficient data retrieval.
+* **Modular Design:** Separated concerns into dedicated functions for data entry, list manipulation, and financial calculations, promoting code reusability and maintainability.
+* **User-Friendly Interface:** Features a menu-driven interface for seamless interaction, allowing users to add, delete, view, and analyze records.
+* **Error Handling:** Incorporated robust error handling for invalid input and potential memory failures, ensuring program stability.
+
+This project demonstrates my proficiency in **pointer manipulation, manual memory control, and clean separation of concerns**, making it a solid example of low-level systems programming and data structure implementation.
+
+### XML Tree Natural-Number Expression Evaluator (Java)
+
+This Java project implements an **XML-based arithmetic expression evaluator** for natural numbers. It's designed with modularity in mind, leveraging existing components for parsing and computation.
+
+**Key Highlights:**
+
+* **Modular Architecture:** Leverages third-party libraries (`XMLTree1` for parsing, `NaturalNumber2` for arbitrary-precision arithmetic) to focus on core evaluation logic.
+* **Recursive Evaluation:** The core `evaluate` method recursively traverses the XML tree, interpreting arithmetic operations (`<plus>`, `<minus>`, `<times>`, `<divide>`) and literal number nodes.
+* **Arbitrary-Precision Arithmetic:** Utilizes `NaturalNumber2` for precise calculations, handling numbers of any size.
+* **Defensive Programming:** Includes `divide-by-zero` checks and input validation through assertions, ensuring robust and reliable execution.
+* **Separation of Concerns:** Clearly separates input/output handling from the core computation logic, promoting a clean and maintainable codebase.
+
+This project highlights principles such as **reusable components, recursion, and maintainable, testable code structure**—key qualities in scalable software development.
+
+### Bestaurants Geodatabase (PostgreSQL/PostGIS)
+
+In this project, I designed and implemented a comprehensive **"Bestaurants" geospatial database** using PostgreSQL with PostGIS. It showcases my end-to-end proficiency in spatial database architecture.
+
+**Key Highlights:**
+
+* **Spatial Schema Design:** Applied a consistent spatial reference system (SRID 3857, WGS 84 Web Mercator) across all geometry-enabled tables.
+* **Structured Data Storage:** Created `POINT`-based tables for various venue types (diners, cafés, restaurants, bars/lounges) with appropriate data types.
+* **Data Integrity & Validation:** Implemented a `CHECK` constraint for ratings (1-5), an `ENUM` type for `venue_type`, and used foreign key constraints for a normalized one-to-many relationship between `diners` and `diner_reviews` to prevent orphaned records.
+* **Efficient Spatial Queries:** Added **spatial indexes (GIST)** on geometry columns and **attribute indexes (BTREE)** on ratings to support high-performance spatial queries (e.g., finding diners with high ratings within a certain distance).
+* **Reproducible Design:** Captured the complete schema in SQL scripts, ensuring version control, reproducibility, and automated deployment.
+
+This project reinforced key principles of **relational modeling, spatial indexing, and data integrity**, while leveraging PostGIS capabilities to build scalable, high-performance geospatial applications.
+
+---
+
+## Geospatial Analysis & R Projects
+
+### Transit Accessibility Study (R)
+
+This project demonstrates a multimodal accessibility analysis of San Luis Obispo using R's modern transport-GIS stack.
+
+**Key Highlights:**
+
+* **Integrated R Libraries:** Utilized `r5r`, `osmextract`, `tidytransit`, `sf`, and the `tidyverse` for a complete analysis workflow.
+* **Travel Time Matrix Generation:** Computed walk/transit travel times from schools to a city-wide hex grid using `travel_time_matrix()`.
+* **Isochrone Generation:** Created and calculated areas for 10, 20, and 30-minute isochrones, visualizing accessibility.
+* **Transit Network Analysis:** Processed GTFS data with `tidytransit` to count and visualize transit stops per grid cell.
+* **Accessibility Modeling:** Applied `accessibility()` with both step and exponential decay functions to model and map spatial equity.
+
+This project showcases reproducible, script-based approaches to **spatial network analysis, isochrones, and transit accessibility** using modern R tools.
+
+### Spatial Network & Autocorrelation Analysis (R)
+
+In this project, I conducted a full social and spatial network analysis of Seattle gang “turf” data entirely in R, integrating traditional spatial tools with modern network science packages.
+
+**Key Highlights:**
+
+* **Integrated R Ecosystem:** Combined `sf`, `tmap`, `spdep` with `igraph`, `tidygraph`, `ggraph`, `sfnetworks`, and `visNetwork` for a comprehensive analysis.
+* **Data Preparation & Indexing:** Read and standardized census tract data to create composite indices like concentrated disadvantage.
+* **Network Centrality Analysis:** Built a network from tract-level data, calculating and visualizing centrality metrics (degree, betweenness, closeness).
+* **Spatial Autocorrelation:** Generated spatial weights and performed a Monte Carlo Moran’s I test to assess spatial clustering.
+* **Geospatial Network Visualization:** Mapped centrality scores back to tracts and geometrically visualized the spatial network with `sfnetworks`.
+
+This lab highlighted how R enables seamless integration of **spatial analysis, network science, and reproducible cartography** in one workflow.
+
+### Wildfire Risk Assessment (R)
+
+This capstone project, a group effort, utilized a modern RStudio-based GIS workflow to identify and analyze high-risk wildfire zones in Los Angeles County.
+
+**Key Highlights:**
+
+* **Multi-Source Data Integration:** Integrated 2022 fire-perimeter polygons, fire-station locations, and weekly drought-severity shapefiles.
+* **Data Harmonization & Enrichment:** Harmonized projections, converted CSVs to spatial layers, and enriched wildfire polygons with alarm dates, area, and derived drought metrics.
+* **Spatial Analysis & Proximity Modeling:** Quantified spatial intersections using `st_intersection` and `st_join`, and assessed proximity to fire stations via buffers and nearest-distance calculations.
+* **Spatial Clustering & Point Pattern Analysis:** Used Moran’s I to test for spatial clustering of drought-driven fire risk and ran Ripley’s K for small fires to detect local clustering.
+* **Reproducible GIS Workflow:** Demonstrated how emerging R-based GIS approaches enable integrated spatial analysis, proximity modeling, and high-quality mapping in a reproducible workflow.
+
+---
