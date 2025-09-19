@@ -1,6 +1,10 @@
 import streamlit as st
 import folium
 import pandas as pd
+import geopy
+from geopy.geocoders import Nominatim
+import geopandas as gpd
+from shapely.geometry import Point
 from streamlit_folium import st_folium
 
 st.title("Wanderly GeoMatcher: Geospatial Job Matching Demo")
