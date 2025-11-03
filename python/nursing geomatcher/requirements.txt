@@ -1,0 +1,8 @@
+flask=3.0.3
+flask-socketio==5.3.6
+sqlalchemy==2.0.35
+geoalchemy2==0.15.2
+psycopg2-binary==2.9.9
+geopy==2.4.1
+scrapy==2.11.2
+eventlet==0.37.0
