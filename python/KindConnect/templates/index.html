@@ -56,6 +56,16 @@
                     </td>
                 </tr>
                 {% endfor %}
+                {% macro sort_acts(acts) %}
+                    {% set sorted = acts|list %}
+                    {% set _ = sorted.sort(key=lambda x: x.kind_score, reverse=true) %}
+                    {{ sorted }}
+                {% endmacro %}
+
+                {% set acts = sort_acts(acts) %}
+                {% for a in acts %}
+                    <tr data-id="{{ a.id }}"> ... </tr>
+                {% endfor %}
             </tbody>
         </table>
         {% if acts|length == 0 %}
@@ -67,8 +77,9 @@
 
 <script>
 const form = document.getElementById('actForm');
-const msg  = document.getElementById('msg');
+const msg = document.getElementById('msg');
 
+// Submit new act
 form.addEventListener('submit', async e => {
     e.preventDefault();
     const payload = {
@@ -84,24 +95,47 @@ form.addEventListener('submit', async e => {
     const data = await res.json();
     if (res.ok) {
         msg.textContent = `Act #${data.act_id} recorded!`;
-        setTimeout(() => location.reload(), 1200);
+        setTimeout(() => location.reload(), 1000);
     } else {
         msg.textContent = data.error || 'Error';
+        msg.style.color = '#c0392b';
     }
 });
 
-/* Voting */
+// Live voting without reload
 document.querySelectorAll('.actions button').forEach(btn => {
     btn.addEventListener('click', async () => {
         const row = btn.closest('tr');
         const actId = row.dataset.id;
         const direction = btn.classList.contains('up') ? 'up' : 'down';
-        await fetch(`/vote/${actId}`, {
+
+        const res = await fetch(`/vote/${actId}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({direction})
         });
-        location.reload();
+        const data = await res.json();
+
+        if (res.ok) {
+            // Update UI instantly
+            row.querySelector('td:nth-child(5)').textContent = data.net_votes;
+            row.querySelector('.score').textContent = data.kind_score;
+
+            // Re-sort leaderboard by KindScore
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const scoreA = parseInt(a.querySelector('.score').textContent);
+                const scoreB = parseInt(b.querySelector('.score').textContent);
+                return scoreB - scoreA;
+            });
+            rows.forEach(r => tbody.appendChild(r));
+
+            // Update rank numbers
+            tbody.querySelectorAll('tr').forEach((r, i) => {
+                r.querySelector('td:first-child').textContent = i + 1;
+            });
+        }
     });
 });
 </script>

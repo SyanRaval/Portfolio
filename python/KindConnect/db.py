@@ -45,25 +45,19 @@ def add_act(entity: str, description: str, impact: int) -> int:
     return act_id
 
 
-def vote_on_act(act_id: int, up: bool):
-    """Increment upvote or downvote."""
+def vote_on_act(act_id: int, up: bool) -> Dict:
+    """Increment vote and return the updated act with new KindScore."""
     conn = get_conn()
     cur = conn.cursor()
     field = "upvotes" if up else "downvotes"
     cur.execute(f"UPDATE acts SET {field} = {field} + 1 WHERE id = ?", (act_id,))
     conn.commit()
-    conn.close()
 
-
-def get_act(act_id: int) -> Dict:
-    conn = get_conn()
-    cur = conn.cursor()
+    # Fetch the freshly updated row
     cur.execute("SELECT * FROM acts WHERE id = ?", (act_id,))
     row = cur.fetchone()
     conn.close()
-    if not row:
-        return {}
-    return _row_to_dict(row)
+    return _row_to_dict(row) if row else {}
 
 
 def get_all_acts() -> List[Dict]:

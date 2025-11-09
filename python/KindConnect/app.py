@@ -35,20 +35,26 @@ def submit():
     return jsonify({"act_id": act_id, "message": "Act recorded"}), 201
 
 
+# app.py  (replace the /vote route)
+
 @app.route("/vote/<int:act_id>", methods=["POST"])
 def vote(act_id):
-    """
-    Expected JSON:
-    { "direction": "up" }   or   { "direction": "down" }
-    """
     data = request.get_json()
     direction = data.get("direction")
     if direction not in ("up", "down"):
         return jsonify({"error": "direction must be 'up' or 'down'"}), 400
 
-    vote_on_act(act_id, direction == "up")
-    act = get_act(act_id)
-    return jsonify({"act_id": act_id, "kind_score": act["kind_score"]})
+    updated_act = vote_on_act(act_id, direction == "up")
+    if not updated_act:
+        return jsonify({"error": "Act not found"}), 404
+
+    return jsonify({
+        "act_id": updated_act["id"],
+        "upvotes": updated_act["upvotes"],
+        "downvotes": updated_act["downvotes"],
+        "net_votes": updated_act["net_votes"],
+        "kind_score": updated_act["kind_score"]
+    })
 
 
 def calculate_kind_score(impact: int, net_votes: int) -> int:
