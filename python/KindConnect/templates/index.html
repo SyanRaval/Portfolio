@@ -56,16 +56,6 @@
                     </td>
                 </tr>
                 {% endfor %}
-                {% macro sort_acts(acts) %}
-                    {% set sorted = acts|list %}
-                    {% set _ = sorted.sort(key=lambda x: x.kind_score, reverse=true) %}
-                    {{ sorted }}
-                {% endmacro %}
-
-                {% set acts = sort_acts(acts) %}
-                {% for a in acts %}
-                    <tr data-id="{{ a.id }}"> ... </tr>
-                {% endfor %}
             </tbody>
         </table>
         {% if acts|length == 0 %}
