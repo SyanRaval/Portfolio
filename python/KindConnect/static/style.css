@@ -1,0 +1,29 @@
+/* static/style.css */
+* { box-sizing: border-box; margin:0; padding:0; }
+body { font-family: system-ui, sans-serif; background:#f9f9fb; color:#333; line-height:1.5; }
+.container { max-width: 960px; margin:2rem auto; padding:0 1rem; }
+
+header { text-align:center; margin-bottom:2rem; }
+header h1 { font-size:2.5rem; color:#2c3e50; }
+header p { color:#777; }
+
+.submit, .leaderboard { background:#fff; padding:1.5rem; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.07); margin-bottom:2rem; }
+.submit h2, .leaderboard h2 { margin-bottom:1rem; color:#2c3e50; }
+
+#actForm { display:grid; gap:0.75rem; }
+#actForm input, #actForm textarea { padding:0.6rem; border:1px solid #ccc; border-radius:4px; font-size:1rem; }
+#actForm textarea { min-height:70px; resize:vertical; }
+#actForm button { background:#27ae60; color:#fff; border:none; padding:0.7rem 1.2rem; border-radius:4px; cursor:pointer; font-weight:600; }
+#actForm button:hover { background:#219150; }
+
+.msg { margin-top:0.5rem; font-weight:600; color:#27ae60; }
+
+table { width:100%; border-collapse:collapse; }
+th, td { padding:0.6rem 0.4rem; text-align:left; border-bottom:1px solid #eee; }
+th { background:#f0f0f0; font-weight:600; }
+.score { font-weight:700; color:#27ae60; }
+.actions button { background:none; border:none; cursor:pointer; font-size:1.2rem; margin:0 0.2rem; }
+.actions .up   { color:#27ae60; }
+.actions .down { color:#c0392b; }
+
+.empty { color:#999; font-style:italic; text-align:center; padding:1rem; }
