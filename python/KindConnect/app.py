@@ -1,6 +1,6 @@
 # app.py
 from flask import Flask, render_template, request, jsonify, redirect, url_for
-from db import init_db, add_act, get_all_acts, get_act, vote_on_act
+from db import init_db, add_act, get_all_acts, vote_on_act
 
 app = Flask(__name__)
 init_db()                                   # create tables if they don't exist
