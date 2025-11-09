@@ -1,0 +1,109 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>KindScore – Measure Kindness</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+
+    <header>
+        <h1>KindScore</h1>
+        <p>Log acts of kindness • Vote • See who’s making the world better.</p>
+    </header>
+
+    <!-- ==== SUBMIT FORM ==== -->
+    <section class="submit">
+        <h2>Log a Kind Act</h2>
+        <form id="actForm">
+            <input type="text" id="entity" placeholder="Entity (person / corp / country)" required>
+            <textarea id="desc" placeholder="What did they do? (optional)"></textarea>
+            <input type="number" id="impact" min="1" max="100" placeholder="Impact (1-100)" required>
+            <button type="submit">Submit</button>
+        </form>
+        <p id="msg" class="msg"></p>
+    </section>
+
+    <!-- ==== LEADERBOARD ==== -->
+    <section class="leaderboard">
+        <h2>Live Leaderboard</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Entity</th>
+                    <th>Description</th>
+                    <th>Impact</th>
+                    <th>Votes</th>
+                    <th>KindScore</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in acts %}
+                <tr data-id="{{ a.id }}">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ a.entity }}</td>
+                    <td>{{ a.description or '—' }}</td>
+                    <td>{{ a.impact }}</td>
+                    <td>{{ a.net_votes }}</td>
+                    <td class="score">{{ a.kind_score }}</td>
+                    <td class="actions">
+                        <button class="up"   title="Upvote">Up</button>
+                        <button class="down" title="Downvote">Down</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if acts|length == 0 %}
+        <p class="empty">No acts yet – be the first!</p>
+        {% endif %}
+    </section>
+
+</div>
+
+<script>
+const form = document.getElementById('actForm');
+const msg  = document.getElementById('msg');
+
+form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const payload = {
+        entity: document.getElementById('entity').value.trim(),
+        description: document.getElementById('desc').value.trim(),
+        impact: parseInt(document.getElementById('impact').value)
+    };
+    const res = await fetch('/submit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok) {
+        msg.textContent = `Act #${data.act_id} recorded!`;
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        msg.textContent = data.error || 'Error';
+    }
+});
+
+/* Voting */
+document.querySelectorAll('.actions button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const actId = row.dataset.id;
+        const direction = btn.classList.contains('up') ? 'up' : 'down';
+        await fetch(`/vote/${actId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({direction})
+        });
+        location.reload();
+    });
+});
+</script>
+</body>
+</html>
